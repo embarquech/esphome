@@ -8,10 +8,8 @@ namespace esphome::epaper_spi {
 static constexpr const char *const TAG = "epaper_spi.mono";
 
 void EPaperMono::refresh_screen(bool partial) {
-  ESP_LOGV(TAG, "Refresh screen (partial=%s)", partial ? "true" : "false");
-  // 0xDC = fast B/W partial update used by GxEPD2 for the GDEY042Z98 (SSD1683): ~1-2s.
-  // 0xF7 = slow full refresh used every full_update_every-th frame to clear ghosting.
-  this->cmd_data(0x22, {partial ? (uint8_t) 0xDC : (uint8_t) 0xF7});
+  ESP_LOGV(TAG, "Refresh screen");
+  this->cmd_data(0x22, {partial ? (uint8_t) 0xFF : (uint8_t) 0xF7});
   this->command(0x20);
 }
 

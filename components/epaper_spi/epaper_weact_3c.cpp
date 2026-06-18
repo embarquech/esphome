@@ -211,35 +211,33 @@ void EPaperWeAct3C::refresh_screen(bool partial) {
   this->cmd_data(0x4E, {0x00});        // RAM X counter = 0 (1 byte)
   this->cmd_data(0x4F, {0x00, 0x00});  // RAM Y counter = 0 (2 bytes)
 
-  // FAST UPDATE display step (ported from GxEPD2 GDEY042Z98::_Update_Full fast path).
-  // The fast LUT was already loaded in power_on() using a spoofed high temperature.
-  // 0xC7 = enable clock + enable analog + display(mode 1) + disable analog + disable osc,
-  // WITHOUT reloading temperature/LUT -> uses the fast waveform -> ~10s instead of ~20s.
-  this->cmd_data(0x22, {0xC7});  // Display update (fast), keeps black AND red
+  // [PATCH] FAST UPDATE display step (ported from GxEPD2 GDEY042Z98 fast path).
+  // The fast LUT was loaded in power_on() via a spoofed high temperature.
+  // 0xC7 = display with mode 1 using the already-loaded fast waveform -> ~10s,
+  // keeps black AND red. (Original used 0xF7 = ~20s full refresh.)
+  this->cmd_data(0x22, {0xC7});  // Display update (fast)
   this->command(0x20);           // Activate display update (long busy ~10s)
 }
 
 void EPaperWeAct3C::power_on() {
-  // FAST UPDATE init step (ported from GxEPD2 GDEY042Z98::_Update_Full fast path).
-  // Trick: write a fake high temperature into the temperature register so the
-  // controller selects a much faster waveform, then load that LUT. The actual
-  // display happens later in refresh_screen() with 0x22/0xC7.
+  // [PATCH] FAST UPDATE init step (GxEPD2 GDEY042Z98 fast path).
+  // Write a fake high temperature so the controller selects a faster waveform,
+  // then load that LUT. The actual display happens in refresh_screen() (0xC7).
   this->cmd_data(0x1A, {0x5A, 0x00});  // Temperature register = 0x5A (90 C)
   this->cmd_data(0x22, {0x91});        // Load LUT for that temperature (no real-temp reload)
   this->command(0x20);                 // Master activation (brief busy while LUT loads)
 }
 
 void EPaperWeAct3C::power_off() {
-  // No-op for fast update: the 0xC7 sequence in refresh_screen() already disables
-  // the analog supply and oscillator, so a separate power-off activation is not needed.
+  // [PATCH] No-op: the 0xC7 sequence in refresh_screen() already powers the panel
+  // down (disable analog + osc), so a separate power-off activation is not needed.
 }
 
 void EPaperWeAct3C::deep_sleep() {
   // Deep sleep sequence
   this->cmd_data(0x10, {0x01});  // Deep sleep mode
-  // DC is shared with the on-board blue LED (GPIO2). cmd_data leaves DC high,
-  // which keeps the LED lit while idle. Force it low so the LED stays off
-  // between refreshes (it will still flicker during the ~10s refresh itself).
+  // [PATCH] DC is shared with the on-board blue LED (GPIO2 on some boards).
+  // cmd_data leaves DC high (LED lit); force it low so the LED stays off at rest.
   this->dc_pin_->digital_write(false);
 }
 
