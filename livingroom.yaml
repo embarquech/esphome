@@ -1,0 +1,305 @@
+esphome:
+  name: esp32home
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# Composant epaper_spi local modifie (fast refresh WeAct 3C) -> ecrase le built-in
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [epaper_spi]
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_key
+  reboot_timeout: 0s   # pas de reboot si Home Assistant absent (station autonome)
+
+ota:
+  - platform: esphome
+
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 0s   # pas de reboot si WiFi absent (station autonome)
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Chambre Fallback Hotspot"
+    password: !secret ap_password
+
+captive_portal:
+
+# GPIO2 (LED bleue embarquee) : sortie forcee a l'etat bas -> LED toujours eteinte
+output:
+  - platform: gpio
+    pin: GPIO2
+    id: onboard_led
+
+i2c:
+  - id: bus_a
+    sda: GPIO21
+    scl: GPIO22
+    scan: true
+  - id: bus_b
+    sda: GPIO32
+    scl: GPIO33
+    scan: true
+    frequency: 10kHz   # bus ralenti : 2 modules + fils longs = fronts degrades
+
+# Bus SPI pour l'écran e-paper (le e-paper n'utilise pas MISO)
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+
+# Police téléchargée automatiquement depuis Google Fonts
+font:
+  - file: "gfonts://Roboto"
+    id: font_large
+    size: 32
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 20
+
+color:
+  - id: color_red
+    red: 100%
+    green: 0%
+    blue: 0%
+  - id: color_black
+    red: 0%
+    green: 0%
+    blue: 0%
+
+# Historique des 6 valeurs sur 30min, mini-graphes 192x48 (grille 2 colonnes x 4 lignes).
+# Courbes NOIRES par defaut ; celles avec un id de trace (xxx_trace) passent en ROUGE
+# via set_line_color() dans le lambda quand la valeur depasse le seuil.
+graph:
+  - id: co2_graph
+    duration: 30min
+    width: 192
+    height: 48
+    x_grid: 10min
+    y_grid: 50      # 1 ligne horizontale / 50 ppm
+    min_range: 100  # span Y mini de 100 ppm (auto au-dela)
+    border: true
+    traces:
+      - sensor: co2_value
+        id: co2_trace
+        color: color_red
+        line_thickness: 2
+  - id: temp_graph
+    duration: 30min
+    width: 192
+    height: 48
+    x_grid: 10min
+    y_grid: 1       # 1 ligne / 1 degre
+    min_range: 2    # span Y mini de 2 C
+    border: true
+    traces:
+      - sensor: ms5611_temp
+        id: temp_trace
+        color: color_red
+        line_thickness: 2
+  - id: humidity_graph
+    duration: 30min
+    width: 192
+    height: 48
+    x_grid: 10min
+    y_grid: 5       # 1 ligne / 5 %
+    min_range: 10   # span Y mini de 10 %
+    border: true
+    traces:
+      - sensor: humidity_value
+        id: hum_trace
+        color: color_red
+        line_thickness: 2
+  - id: pressure_graph
+    duration: 30min
+    width: 192
+    height: 48
+    x_grid: 10min
+    y_grid: 5       # 1 ligne / 5 hPa
+    min_range: 10   # span Y mini de 10 hPa
+    border: true
+    traces:
+      - sensor: pressure_value
+        id: press_trace
+        color: color_red
+        line_thickness: 2
+  - id: voc_graph
+    duration: 30min
+    width: 192
+    height: 48
+    x_grid: 10min
+    y_grid: 50      # 1 ligne / 50 (indice COV 1-500)
+    min_range: 100
+    border: true
+    traces:
+      - sensor: voc_index
+        id: voc_trace
+        color: color_red
+        line_thickness: 2
+  - id: nox_graph
+    duration: 30min
+    width: 192
+    height: 48
+    x_grid: 10min
+    y_grid: 5       # 1 ligne / 5 (indice NOx, ~1 en air sain)
+    min_range: 10
+    border: true
+    traces:
+      - sensor: nox_index
+        id: nox_trace
+        color: color_red
+        line_thickness: 2
+  - id: pm25_graph
+    duration: 30min
+    width: 192
+    height: 48
+    x_grid: 10min
+    y_grid: 10      # 1 ligne / 10 ug/m3
+    min_range: 20   # span Y mini de 20 ug/m3
+    border: true
+    traces:
+      - sensor: pm25_value
+        id: pm25_trace
+        color: color_red
+        line_thickness: 2
+  - id: pm10_graph
+    duration: 30min
+    width: 192
+    height: 48
+    x_grid: 10min
+    y_grid: 10      # 1 ligne / 10 ug/m3
+    min_range: 20
+    border: true
+    traces:
+      - sensor: pm10_value
+        id: pm10_trace
+        color: color_red
+        line_thickness: 2
+
+display:
+  - platform: epaper_spi
+    model: WeAct-4.2in-3c
+    cs_pin: GPIO5
+    dc_pin: GPIO19   # deplace de GPIO2 (LED bleue embarquee) pour ne plus clignoter
+    reset_pin: GPIO15
+    busy_pin:
+      number: GPIO4
+      inverted: false
+    rotation: 0
+    update_interval: 30s
+    lambda: |-
+      // Grille 2 colonnes x 4 lignes = 8 cases de 200x75.
+      // Chaque case : "Libelle valeur tendance" en haut, mini-graphe 192x48 dessous.
+      // Tendance : compare la valeur actuelle a celle d'il y a ~10 min (64 points
+      // de ~9.4s dans l'historique du graphe). ^ = monte, v = descend, = = stable.
+      auto trend = [](float now, float old, float delta) -> const char * {
+        if (std::isnan(now) || std::isnan(old)) return "";
+        if (now - old > delta) return "^";
+        if (old - now > delta) return "v";
+        return "=";
+      };
+
+      // Rangee 1 (y=0) : CO2 | Temp
+      it.printf(4, 1, id(font_small), id(co2_value).state > 1200 ? id(color_red) : id(color_black), "CO2 %.0fppm %s", id(co2_value).state, trend(id(co2_value).state, id(co2_trace)->get_tracedata()->get_value(64), 30));
+      it.graph(4, 25, id(co2_graph), id(color_black));
+      it.printf(204, 1, id(font_small), id(color_black), "Temp %.1fC %s", id(ms5611_temp).state, trend(id(ms5611_temp).state, id(temp_trace)->get_tracedata()->get_value(64), 0.3));
+      it.graph(204, 25, id(temp_graph), id(color_black));
+
+      // Rangee 2 (y=75) : Humidite | Pression
+      it.printf(4, 76, id(font_small), (id(humidity_value).state < 30 || id(humidity_value).state > 60) ? id(color_red) : id(color_black), "Hum %.0f%% %s", id(humidity_value).state, trend(id(humidity_value).state, id(hum_trace)->get_tracedata()->get_value(64), 2));
+      it.graph(4, 100, id(humidity_graph), id(color_black));
+      it.printf(204, 76, id(font_small), id(color_black), "Press %.0fhPa %s", id(pressure_value).state, trend(id(pressure_value).state, id(press_trace)->get_tracedata()->get_value(64), 0.5));
+      it.graph(204, 100, id(pressure_graph), id(color_black));
+
+      // Rangee 3 (y=150) : COV | NOx
+      it.printf(4, 151, id(font_small), id(voc_index).state > 200 ? id(color_red) : id(color_black), "COV %.0f %s", id(voc_index).state, trend(id(voc_index).state, id(voc_trace)->get_tracedata()->get_value(64), 20));
+      it.graph(4, 175, id(voc_graph), id(color_black));
+      it.printf(204, 151, id(font_small), id(nox_index).state > 150 ? id(color_red) : id(color_black), "NOx %.0f %s", id(nox_index).state, trend(id(nox_index).state, id(nox_trace)->get_tracedata()->get_value(64), 10));
+      it.graph(204, 175, id(nox_graph), id(color_black));
+
+      // Rangee 4 (y=225) : PM2.5 | PM10 (en ug/m3)
+      it.printf(4, 226, id(font_small), id(pm25_value).state > 15 ? id(color_red) : id(color_black), "PM2.5 %.0fug %s", id(pm25_value).state, trend(id(pm25_value).state, id(pm25_trace)->get_tracedata()->get_value(64), 3));
+      it.graph(4, 250, id(pm25_graph), id(color_black));
+      it.printf(204, 226, id(font_small), id(pm10_value).state > 45 ? id(color_red) : id(color_black), "PM10 %.0fug %s", id(pm10_value).state, trend(id(pm10_value).state, id(pm10_trace)->get_tracedata()->get_value(64), 5));
+      it.graph(204, 250, id(pm10_graph), id(color_black));
+
+sensor:
+  - platform: scd30
+    id: scd30_sensor
+    i2c_id: bus_a
+    co2:
+      name: "CO2"
+      id: co2_value
+    temperature:
+      name: "Température SCD30"
+      id: temp_value
+    humidity:
+      name: "Humidité SCD30"
+      id: humidity_value
+    address: 0x61
+    update_interval: 2s
+    temperature_offset: 2.0   # compense l'auto-chauffe (mesure vs MS5611), corrige aussi l'humidite
+
+  - platform: ms5611
+    i2c_id: bus_a
+    temperature:
+      name: "Température MS5611"
+      id: ms5611_temp
+    pressure:
+      name: "Pression MS5611"
+      id: pressure_value
+    address: 0x77
+    update_interval: 2s
+
+  - platform: sps30
+    i2c_id: bus_b
+    pm_1_0:
+      name: "PM 1.0"
+      id: pm1_value
+    pm_2_5:
+      name: "PM 2.5"
+      id: pm25_value
+    pm_4_0:
+      name: "PM 4.0"
+      id: pm4_value
+    pm_10_0:
+      name: "PM 10"
+      id: pm10_value
+    address: 0x69
+    update_interval: 10s
+
+  - platform: sgp4x
+    i2c_id: bus_a
+    voc:
+      name: "Indice COV"
+      id: voc_index
+    nox:
+      name: "Indice NOx"
+      id: nox_index
+    compensation:
+      temperature_source: ms5611_temp
+      humidity_source: humidity_value
+    address: 0x59
+    update_interval: 1s
+
+
+button:
+  - platform: template
+    name: "Calibrer SCD30 à 400ppm"
+    on_press:
+      - scd30.force_recalibration_with_reference:
+          id: scd30_sensor
+          value: 400
+    
