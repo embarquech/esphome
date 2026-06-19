@@ -15,6 +15,7 @@ external_components:
 
 # Enable logging
 logger:
+  level: INFO   # moins de spam serie (le DEBUG logge chaque mesure 1-2s)
 
 # Enable Home Assistant API
 api:
@@ -62,9 +63,6 @@ spi:
 
 # Police téléchargée automatiquement depuis Google Fonts
 font:
-  - file: "gfonts://Roboto"
-    id: font_large
-    size: 32
   - file: "gfonts://Roboto"
     id: font_small
     size: 20
@@ -198,7 +196,7 @@ display:
       number: GPIO4
       inverted: false
     rotation: 0
-    update_interval: 30s
+    update_interval: 60s
     lambda: |-
       // Grille 2 colonnes x 4 lignes = 8 cases de 200x75.
       // Chaque case : "Libelle valeur tendance" en haut, mini-graphe 192x48 dessous.
@@ -251,6 +249,7 @@ sensor:
     address: 0x61
     update_interval: 2s
     temperature_offset: 2.0   # compense l'auto-chauffe (mesure vs MS5611), corrige aussi l'humidite
+    ambient_pressure_compensation: 955mBar   # altitude ~500m (MS5611) -> CO2 plus juste
 
   - platform: ms5611
     i2c_id: bus_a
